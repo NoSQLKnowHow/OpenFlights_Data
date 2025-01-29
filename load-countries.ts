@@ -9,7 +9,7 @@ interface Country {
     dafif_code: string | null;
 }
 
-const csvFilePath = path.resolve(__dirname, 'countries.dat');
+const csvFilePath = path.resolve(__dirname, 'data', 'countries.dat');
 const errorLogPath = path.resolve(__dirname, 'errors.log');
 
 // Function to log errors to a file

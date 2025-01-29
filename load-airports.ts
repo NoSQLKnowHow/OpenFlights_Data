@@ -26,7 +26,7 @@ export interface Env {
   FAUNA_SECRET: string;
 }
 
-const csvFilePath = path.resolve(__dirname, 'airports.dat');
+const csvFilePath = path.resolve(__dirname, 'data', 'airports.dat');
 const errorLogPath = path.resolve(__dirname, 'errors.log');
 
 // Function to log errors to a file

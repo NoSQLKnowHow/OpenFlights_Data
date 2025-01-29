@@ -18,7 +18,7 @@ interface Airline {
 // Fauna client (replace with your secret key)
 const client = new Client({ secret: 'YOUR_FAUNA_SECRET' });
 
-const csvFilePath = path.resolve(__dirname, 'airlines.dat');
+const csvFilePath = path.resolve(__dirname, 'data', 'airlines.dat');
 const errorLogPath = path.resolve(__dirname, 'errors.log');
 
 // Function to log errors to a file
