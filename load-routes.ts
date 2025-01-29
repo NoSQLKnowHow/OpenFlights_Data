@@ -19,7 +19,7 @@ interface Route {
 // FaunaDB client (replace with your secret key)
 const client = new Client({ secret: 'YOUR_FAUNA_SECRET' });
 
-const csvFilePath = path.resolve(__dirname, 'routes.dat');
+const csvFilePath = path.resolve(__dirname, 'data', 'routes.dat');
 const errorLogPath = path.resolve(__dirname, 'errors.log');
 
 // Function to log errors to a file
@@ -54,11 +54,11 @@ const writeToFauna = async (data: Route): Promise<void> => {
         // Build the final payload with the transformed country field
         const payload = {
             ...rest,
-            sourceAirport: fql`Airports.byId(${sourceAirportId})`,
-            airline: fql`Airline.byId(${airlineId})`,
-            destinationAirport: fql`Airport.byId(${destinationAirportId})`
+            sourceAirport: fql`Airports.byId(${sourceAirportId})` || null,
+            airline: fql`Airline.byId(${airlineId})` || null,
+            destinationAirport: fql`Airport.byId(${destinationAirportId})` || null
         };
-        console.log(payload, data);
+        //console.log(payload, data);
         const getData = await client.query(
             fql`Route.create(${payload})`
         );
@@ -109,8 +109,7 @@ const readCsvFile = async (filePath: string): Promise<void> => {
                         Object.entries(data).filter(([_, v]) => v !== null)
                     );
 
-                    // Push the async write to the promises array
-                    promises.push(writeToFauna(finalData as Route));
+                    await writeToFauna(finalData as Route);
                 } catch (err) {
                     logError(`Error processing row: ${JSON.stringify(data)} - ${err.message || err}`);
                 }
