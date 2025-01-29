@@ -1,0 +1,34 @@
+
+collection Country {
+  index byName {
+    terms [.name]
+  }
+  unique [.name]
+  unique [.iso_code]
+  unique [.dafif_code]
+}
+
+collection Airport {
+  index byIata {
+    terms [.iata]
+  }
+
+  index byIcao {
+    terms [.icao]
+  }
+
+  unique [.iata]
+  unique [.icao]
+  index byCountry {
+    terms [.country]
+  }
+}
+
+collection Airline {
+  index byName {
+    terms [.name]
+  }
+}
+
+collection Route {
+}
