@@ -34,11 +34,11 @@ const sanitizeValue = (value: string): string | null => {
 };
 
 const writeToFauna = async (data: Country): Promise<void> => {
-    const client = new Client({ secret: "fnAF2OjlVlAAQVx6pInNHHtafICDzDNaoWZOQ3Rh" });
+    const client = new Client({ secret: "fnAF2aKyTiAARMXqxzfczNRowrVYAZKYYVIOxFgv" });
 
     try {
         const getData = await client.query(
-            fql`Countries.create(${data})`
+            fql`Country.create(${data})`
         );
 
         console.log("data inserted");

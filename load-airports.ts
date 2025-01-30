@@ -58,7 +58,7 @@ const sanitizeValue = (key: string, value: string): string | number | null => {
 };
 
 const writeToFauna = async (data: Airport): Promise<void> => {
-  const client = new Client({ secret: "fnAF2OjlVlAAQVx6pInNHHtafICDzDNaoWZOQ3Rh" });
+  const client = new Client({ secret: "fnAF2aKyTiAARMXqxzfczNRowrVYAZKYYVIOxFgv" });
 
   try {
     // Transform the country field into an FQL query
@@ -67,11 +67,11 @@ const writeToFauna = async (data: Airport): Promise<void> => {
     // Build the final payload with the transformed country field
     const payload = {
       ...rest,
-      country: fql`Countries.byName(${country}).first()`,
+      country: fql`Country.byName(${country}).first()`,
     };
 
     const getData = await client.query(
-        fql`Airports.create(${payload})`
+        fql`Airport.create(${payload})`
     );
 
     console.log("data inserted");
