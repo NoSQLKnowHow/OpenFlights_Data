@@ -31,4 +31,15 @@ collection Airline {
 }
 
 collection Route {
+  index byAirline {
+    terms [.airline]
+  }
+
+  index bySourceAirport {
+    terms [.sourceAirport]
+  }
+
+  index byDestinationAirport {
+    terms [.destinationAirport]
+  }
 }
