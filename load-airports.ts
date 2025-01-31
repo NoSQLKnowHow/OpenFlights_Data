@@ -1,15 +1,17 @@
 import fs from 'fs';
 import path from 'path';
 import csvParser from 'csv-parser';
-import { Client, fql, FaunaError, ServiceError } from "fauna";
+import {Client, fql, Query} from 'fauna'; // Fauna client for FQL v10
 
 interface Airport {
   id: number | null;
   name: string | null;
   citymain: string | null;
-  country: string | null;
+  country: any | Query | null;
   iata: string | null;
   icao: string | null;
+  latitude: string | null;
+  longitude: string | null;
   location?: {
     latitude: string | null;
     longitude: string | null;
@@ -22,78 +24,111 @@ interface Airport {
   source: string | null;
 }
 
-export interface Env {
-  FAUNA_SECRET: string;
-}
+// Fauna client (gets the secret key from the FAUNA_SECRET environment variable)
+const client = new Client();
 
 const csvFilePath = path.resolve(__dirname, 'data', 'airports.dat');
-const errorLogPath = path.resolve(__dirname, 'errors.log');
+const errorLogPath = path.resolve(__dirname, 'errors.log'); // Store logs in ./data/errors.log
 
-// Function to log errors to a file
+// Ensure `data` directory exists
+if (!fs.existsSync(path.dirname(errorLogPath))) {
+  fs.mkdirSync(path.dirname(errorLogPath), { recursive: true });
+}
+
+// Function to log errors
 const logError = (error: string): void => {
   const timestamp = new Date().toISOString();
   fs.appendFile(errorLogPath, `[${timestamp}] ${error}\n`, (err) => {
-    if (err) {
-      console.error('Failed to write to error log:', err);
-    }
+    if (err) console.error('Failed to write to error log:', err);
   });
 };
 
+// Function to sanitize CSV values
 const sanitizeValue = (key: string, value: string): string | number | null => {
   const trimmedValue = value.trim();
 
-  // Handle special case for null values
-  if (trimmedValue === '\\N') {
-    return null;
-  }
+  if (trimmedValue === '\\N' || trimmedValue === '') return null;
 
-  // Convert id, altitude, and timezone to numbers
   if (key === 'id' || key === 'altitude' || key === 'timezone') {
     const parsed = parseFloat(trimmedValue);
     return isNaN(parsed) ? null : parsed;
   }
 
-  // Return sanitized string
   return trimmedValue;
 };
 
-const writeToFauna = async (data: Airport): Promise<void> => {
-  const client = new Client({ secret: "fnAF2aKyTiAARMXqxzfczNRowrVYAZKYYVIOxFgv" });
-
-  try {
-    // Transform the country field into an FQL query
-    const { country, ...rest } = data;
-
-    // Build the final payload with the transformed country field
-    const payload = {
-      ...rest,
-      country: fql`Country.byName(${country}).first()`,
-    };
-
-    const getData = await client.query(
-        fql`Airport.create(${payload})`
-    );
-
-    console.log("data inserted");
-  } catch (error) {
-    if (error instanceof FaunaError) {
-      if (error instanceof ServiceError) {
-        console.error(error.queryInfo?.summary);
-        logError(`Failed to write to Fauna: ${error.queryInfo?.summary || error}`);
-      } else {
-        console.log("data failed to insert ", error);
-        logError(`Failed to write to FaunaDB: ${error}`);
-      }
-    }
-    console.log("data failed to insert ", error);
+// 🔹 Function to modify airport data before batching
+const preprocessAirport = (airport: Airport): Airport => {
+  // Convert the `country` field into an FQL query expression
+  if (airport.country) {
+    airport.country = fql`Country.byName(${airport.country}).first()`;
   }
 
-  console.log(`Writing to FaunaDB: ${JSON.stringify(data, null, 2)}`);
+  // Nest latitude and longitude under `location` and delete the existing fields not nested.
+  if (airport.latitude && airport.longitude) {
+    airport.location = {
+      latitude: airport.latitude,
+      longitude: airport.longitude,
+    };
+    airport.latitude = null;
+    airport.longitude = null;
+  }
+
+  return airport;
 };
 
+// Function to write a batch of airports to Fauna
+const writeBatchToFauna = async (batch: Airport[]): Promise<void> => {
+  try {
+    console.log(`Writing batch of ${batch.length} airports to Fauna...`);
+
+    // Convert batch to an array of JSON documents
+    const jsonBatch = batch.map(airport => ({
+      data: airport
+    }));
+
+    // Send batch write to Fauna (assuming a batch UDF `create_airports_batch`)
+    const response = await client.query(fql`
+            let airports = ${batch}
+            airports.forEach(doc => Airport.create({ doc }))`);
+    console.log("Response from Fauna: ", response);
+
+    console.log(`Successfully wrote batch of ${batch.length} airports.`);
+  } catch (err) {
+    logError(`Failed to write batch to Fauna: ${err.message || err}`);
+  }
+};
+
+// Function to process all airports in batches of 10, with a 10ms pause between batches
+const processAirportsInBatches = async (airports: Airport[]): Promise<void> => {
+  const batchSize = 10;
+  let batch: Airport[] = [];
+
+  for (const airport of airports) {
+    batch.push(airport);
+
+    // When batch reaches 10, send it to Fauna and clear the batch
+    if (batch.length === batchSize) {
+      await writeBatchToFauna(batch);
+      batch = []; // Reset batch
+
+      console.log(`Pausing for 10ms before processing next batch...`);
+      await new Promise(resolve => setTimeout(resolve, 10)); // Wait before sending the next batch
+    }
+  }
+
+  // Process any remaining airports in the last batch
+  if (batch.length > 0) {
+    await writeBatchToFauna(batch);
+  }
+
+  console.log('All airport batches processed successfully.');
+};
+
+// Read the CSV file and process airports in batches
 const readCsvFile = async (filePath: string): Promise<void> => {
   try {
-    const promises: Promise<void>[] = [];
+    const airports: Airport[] = [];
 
     fs.createReadStream(filePath)
         .pipe(
@@ -104,45 +139,27 @@ const readCsvFile = async (filePath: string): Promise<void> => {
                 'tzdatabasetimezone', 'type', 'source'
               ],
               skipLines: 0,
-              mapValues: ({ header, value }) => sanitizeValue(header, value), // Apply sanitization per key
+              mapValues: ({ header, value }) => sanitizeValue(header, value), // Apply sanitization
             })
         )
-        .on('data', async (data: Airport) => {
+        .on('data', (data: Airport) => {
           try {
-            // Extract latitude and longitude into a location object
-            const location = {
-              latitude: data.latitude,
-              longitude: data.longitude,
-            };
-
-            // Remove latitude and longitude from the top level
-            const { latitude, longitude, ...rest } = data;
-
-            // Add the location object only if both latitude and longitude are not null
-            const sanitizedData: Airport = {
-              ...rest,
-              location: location.latitude && location.longitude ? location : undefined,
-            };
-
-            // Remove keys with null values from the JSON
             const finalData = Object.fromEntries(
-                Object.entries(sanitizedData).filter(([_, v]) => v !== null)
+                Object.entries(data).filter(([_, v]) => v !== null)
             );
 
-            // Push the async write to the promises array
-            promises.push(writeToFauna(finalData as Airport));
+            // 🔹 Modify airport before adding to batch
+            const modifiedAirport = preprocessAirport(finalData as Airport);
+
+            airports.push(modifiedAirport);
           } catch (err) {
             logError(`Error processing row: ${JSON.stringify(data)} - ${err.message || err}`);
           }
         })
         .on('end', async () => {
-          try {
-            // Await all asynchronous writes
-            await Promise.all(promises);
-            console.log('Finished processing the CSV file and writing to FaunaDB.');
-          } catch (err) {
-            logError(`Error awaiting promises: ${err.message || err}`);
-          }
+          console.log(`Finished reading CSV file. Processing ${airports.length} airports in batches...`);
+          await processAirportsInBatches(airports);
+          console.log('Finished processing the CSV file and writing all batches to Fauna.');
         })
         .on('error', (err) => {
           logError(`Error reading the CSV file: ${err.message || err}`);
@@ -152,4 +169,5 @@ const readCsvFile = async (filePath: string): Promise<void> => {
   }
 };
 
+// Start processing
 readCsvFile(csvFilePath);
